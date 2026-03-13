@@ -50,9 +50,9 @@ export const StudentLogin = () => {
 
     try {
       // 1. Try Supabase Auth
-      // Students use Admission Number as email prefix
+      // Students use Admission Number directly
       const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: `${username}@student.boraschool.ac.ke`,
+        email: username,
         password: password,
       });
 
@@ -87,10 +87,10 @@ export const StudentLogin = () => {
       const { data: customProfile } = await supabase
         .from('profiles')
         .select('*')
-        .eq('email', `${username}@student.boraschool.ac.ke`)
+        .eq('email', username)
         .eq('password', password)
         .eq('role', 'student')
-        .single();
+        .maybeSingle();
 
       if (customProfile) {
         const { data: student, error: studentError } = await supabase

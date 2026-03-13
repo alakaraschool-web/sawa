@@ -293,11 +293,11 @@ export const SuperAdminDashboard = () => {
   });
 
   const generateCredentials = (schoolName: string, phone: string) => {
-    const slug = schoolName.toLowerCase().replace(/\s+/g, '');
     const pass = Math.random().toString(36).slice(-8).toUpperCase();
+    const sanitizedPhone = phone.replace(/\s+/g, '');
     return {
-      principal: `${phone}@bora.ke`,
-      teacher: `staff.${slug}@bora.ke`,
+      principal: sanitizedPhone,
+      teacher: `staff_${sanitizedPhone}`,
       pass
     };
   };
@@ -347,8 +347,8 @@ export const SuperAdminDashboard = () => {
           user_id: principalId,
           school_id: schoolData.id,
           name: `${newSchool.name} Principal`,
-          email: creds.principal,
-          phone: newSchool.principalPhone,
+          email: newSchool.principalPhone.replace(/\s+/g, ''), // Use phone as identifier
+          phone: newSchool.principalPhone.replace(/\s+/g, ''),
           password: creds.pass,
           role: 'principal'
         });
@@ -359,7 +359,8 @@ export const SuperAdminDashboard = () => {
           user_id: teacherId,
           school_id: schoolData.id,
           name: `${newSchool.name} Staff`,
-          email: creds.teacher,
+          email: `staff_${newSchool.principalPhone.replace(/\s+/g, '')}`, // Still needs a unique identifier
+          phone: newSchool.principalPhone.replace(/\s+/g, ''),
           password: creds.pass,
           role: 'teacher'
         });

@@ -44,44 +44,47 @@ export const TeacherLogin = () => {
     setError('');
 
     try {
-      // 1. Find profile by phone to get email for Supabase Auth
-      const { data: profileByPhone } = await supabase
-        .from('profiles')
-        .select('email')
-        .eq('phone', phone)
-        .eq('role', 'teacher')
-        .single();
+      const sanitizedInput = phone.trim();
+      const isEmail = sanitizedInput.includes('@');
+      
+      // Ensure E.164 format for Supabase Auth if it's a phone number
+      const cleanPhone = sanitizedInput.replace(/\s+/g, '');
+      const authPhone = cleanPhone.startsWith('+') ? cleanPhone : 
+                        cleanPhone.startsWith('0') ? `+254${cleanPhone.substring(1)}` : 
+                        `+${cleanPhone}`;
 
-      if (profileByPhone) {
-        // Try Supabase Auth with the found email
-        const { data, error: authError } = await supabase.auth.signInWithPassword({
-          email: profileByPhone.email,
-          password: password,
-        });
+      // Try Supabase Auth with phone
+      const { data, error: authError } = await supabase.auth.signInWithPassword(
+        isEmail 
+          ? { email: sanitizedInput, password } 
+          : { phone: authPhone, password }
+      );
 
-        if (!authError && data.user) {
-          const { data: profile } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', data.user.id)
-            .single();
+      if (!authError && data.user) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', data.user.id)
+          .single();
 
-          if (profile && profile.role === 'teacher') {
-            localStorage.setItem('alakara_current_teacher', JSON.stringify(profile));
-            navigate('/teacher/dashboard');
-            return;
-          }
+        if (profile && profile.role === 'teacher') {
+          localStorage.setItem('alakara_current_teacher', JSON.stringify(profile));
+          navigate('/teacher/dashboard');
+          return;
         }
       }
 
-      // 2. Fallback: Check profiles table for custom credentials (cross-device support)
+      // 2. Fallback: Check profiles table for custom credentials
       const { data: customProfile } = await supabase
         .from('profiles')
         .select('*')
-        .eq('phone', phone)
+        .or(isEmail 
+          ? `email.eq.${sanitizedInput}` 
+          : `phone.eq.${cleanPhone},phone.eq.${sanitizedInput},email.eq.${sanitizedInput}`
+        )
         .eq('password', password)
         .eq('role', 'teacher')
-        .single();
+        .maybeSingle();
 
       if (customProfile) {
         localStorage.setItem('alakara_current_teacher', JSON.stringify(customProfile));
@@ -89,7 +92,7 @@ export const TeacherLogin = () => {
         return;
       }
 
-      setError('Invalid teacher credentials');
+      setError(authError?.message || 'Invalid teacher credentials');
     } catch (err: any) {
       setError(err.message || 'An unexpected error occurred');
     } finally {

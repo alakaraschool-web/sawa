@@ -39,11 +39,21 @@ export const SuperAdminLogin = () => {
     setError('');
 
     try {
+      const sanitizedInput = username.trim();
+      const isEmail = sanitizedInput.includes('@');
+      
+      // Ensure E.164 format for Supabase Auth if it's a phone number
+      const cleanPhone = sanitizedInput.replace(/\s+/g, '');
+      const authPhone = cleanPhone.startsWith('+') ? cleanPhone : 
+                        cleanPhone.startsWith('0') ? `+254${cleanPhone.substring(1)}` : 
+                        `+${cleanPhone}`;
+
       // 1. Try Supabase Auth
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: username,
-        password: password,
-      });
+      const { data, error: authError } = await supabase.auth.signInWithPassword(
+        isEmail 
+          ? { email: sanitizedInput, password } 
+          : { phone: authPhone, password }
+      );
 
       if (!authError && data.user) {
         const { data: profile, error: profileError } = await supabase
@@ -54,13 +64,14 @@ export const SuperAdminLogin = () => {
 
         if (profileError || !profile || profile.role !== 'super-admin') {
           // If profile doesn't exist or role is wrong, check if it's the requested super admin
-          if (username.toLowerCase() === 'bahatisolomon70@gmail.com') {
+          const emailToAuth = isEmail ? sanitizedInput : authPhone;
+          if (emailToAuth.toLowerCase() === 'bahatisolomon70@gmail.com') {
             // Create profile if it doesn't exist (only for this specific email)
             const { error: insertError } = await supabase.from('profiles').upsert({
               id: data.user.id,
               user_id: data.user.id,
               name: 'Solomon Isiya',
-              email: username.toLowerCase(),
+              email: emailToAuth.toLowerCase(),
               role: 'super-admin'
             });
             
@@ -79,9 +90,9 @@ export const SuperAdminLogin = () => {
       }
 
       // 2. Fallback to hardcoded for prototype if Supabase fails or user not found
-      if (username === 'admin' && password === 'admin123') {
+      if (sanitizedInput === 'admin' && password === 'admin123') {
         navigate('/super-admin/dashboard');
-      } else if (username.toLowerCase() === 'bahatisolomon70@gmail.com' && password === 'Godalways95') {
+      } else if (sanitizedInput.toLowerCase() === 'bahatisolomon70@gmail.com' && password === 'Godalways95') {
         // This is the requested super admin
         navigate('/super-admin/dashboard');
       } else {

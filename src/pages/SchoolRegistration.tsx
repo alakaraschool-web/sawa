@@ -68,11 +68,15 @@ export const SchoolRegistration = () => {
     try {
       // Generate a dummy email for Supabase Auth using principalPhone
       // Using a simpler internal extension
-      const principalEmail = `${formData.principalPhone}@bora.ke`;
+      const sanitizedPhone = formData.principalPhone.replace(/\s+/g, '');
+      // Ensure E.164 format for Supabase Auth
+      const authPhone = sanitizedPhone.startsWith('+') ? sanitizedPhone : 
+                        sanitizedPhone.startsWith('0') ? `+254${sanitizedPhone.substring(1)}` : 
+                        `+${sanitizedPhone}`;
 
-      // 1. Sign up user in Supabase Auth
+      // 1. Sign up user in Supabase Auth using phone
       const { data: authData, error: authError } = await supabase.auth.signUp({
-        email: principalEmail,
+        phone: authPhone,
         password: formData.password,
         options: {
           data: {
@@ -108,8 +112,8 @@ export const SchoolRegistration = () => {
           id: authData.user.id,
           user_id: authData.user.id,
           name: formData.principalName,
-          email: principalEmail,
-          phone: formData.principalPhone,
+          email: sanitizedPhone, // Use phone as the identifier in email column
+          phone: sanitizedPhone,
           role: 'principal',
           school_id: schoolData.id,
           password: formData.password
@@ -126,7 +130,7 @@ export const SchoolRegistration = () => {
         location: formData.location,
         type: formData.schoolType,
         principalName: formData.principalName,
-        principalEmail: principalEmail,
+        principalEmail: sanitizedPhone,
         principalPhone: formData.principalPhone,
         principalPass: formData.password,
         status: 'Active',
