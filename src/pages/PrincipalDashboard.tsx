@@ -82,50 +82,111 @@ export const PrincipalDashboard = () => {
     const saved = localStorage.getItem('alakara_current_school');
     return saved ? JSON.parse(saved) : null;
   });
+  const [principalProfile, setPrincipalProfile] = useState<any>(null);
+  const [isAuthLoading, setIsAuthLoading] = useState(true);
 
   useEffect(() => {
+    let isMounted = true;
+
     const fetchSchoolData = async () => {
-      const { data: { session } } = await supabase.auth.getSession();
-      let profileId = session?.user.id;
-      let profileEmail = session?.user.email;
-
-      // Fallback: Check localStorage if no session
-      if (!profileId) {
-        const savedSchool = localStorage.getItem('alakara_current_school');
-        if (savedSchool) {
-          const schoolObj = JSON.parse(savedSchool);
-          profileEmail = schoolObj.principalEmail;
-        }
-      }
-
-      if (profileId || profileEmail) {
-        const query = supabase.from('profiles').select('*');
-        if (profileId) {
-          query.eq('id', profileId);
-        } else {
-          query.eq('email', profileEmail).eq('role', 'principal');
-        }
-
-        const { data: profile } = await query.single();
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
         
-        if (profile) {
-          const { data: schoolData } = await supabase
-            .from('schools')
-            .select('*')
-            .eq('id', profile.school_id)
-            .single();
-          
-          if (schoolData) {
-            setSchool(schoolData);
-            localStorage.setItem('alakara_current_school', JSON.stringify(schoolData));
+        if (!isMounted) return;
+
+        let profileId = session?.user.id;
+        let profileEmail = session?.user.email;
+
+        // Fallback: Check localStorage if no session
+        if (!profileId) {
+          const savedSchool = localStorage.getItem('alakara_current_school');
+          if (savedSchool) {
+            const schoolObj = JSON.parse(savedSchool);
+            profileEmail = schoolObj.principalEmail;
           }
         }
-      } else if (!school) {
-        navigate('/principal-login');
+
+        if (profileId || profileEmail) {
+          const query = supabase.from('profiles').select('*');
+          if (profileId) {
+            query.eq('id', profileId);
+          } else {
+            query.eq('email', profileEmail).eq('role', 'principal');
+          }
+
+          const { data: profile } = await query.single();
+          
+          if (profile && isMounted) {
+            setPrincipalProfile(profile);
+            const { data: schoolData } = await supabase
+              .from('schools')
+              .select('*')
+              .eq('id', profile.school_id)
+              .single();
+            
+            if (schoolData && isMounted) {
+              setSchool(schoolData);
+              localStorage.setItem('alakara_current_school', JSON.stringify(schoolData));
+            }
+          } else if (!profile && isMounted) {
+            // Fallback to localStorage if profile fetch fails
+            const savedSchool = localStorage.getItem('alakara_current_school');
+            if (savedSchool) {
+              setSchool(JSON.parse(savedSchool));
+            } else {
+              navigate('/principal-login');
+            }
+          }
+        } else if (isMounted) {
+          // Check if we have a school in localStorage even without a session
+          const savedSchool = localStorage.getItem('alakara_current_school');
+          if (savedSchool) {
+            setSchool(JSON.parse(savedSchool));
+          } else {
+            navigate('/principal-login');
+          }
+        }
+      } catch (error) {
+        console.error('Principal auth error:', error);
+        const savedSchool = localStorage.getItem('alakara_current_school');
+        if (savedSchool && isMounted) {
+          setSchool(JSON.parse(savedSchool));
+        } else if (isMounted) {
+          navigate('/principal-login');
+        }
+      } finally {
+        if (isMounted) setIsAuthLoading(false);
       }
     };
+
+    // Listen for auth changes
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        localStorage.removeItem('alakara_current_school');
+        navigate('/principal-login');
+      } else if (event === 'SIGNED_IN' || event === 'TOKEN_REFRESHED') {
+        if (session) fetchSchoolData();
+      }
+    });
+
     fetchSchoolData();
+
+    return () => {
+      isMounted = false;
+      subscription.unsubscribe();
+    };
   }, [navigate]);
+
+  if (isAuthLoading) {
+    return (
+      <div className="min-h-screen bg-kenya-black flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-12 h-12 text-kenya-green animate-spin mx-auto mb-4" />
+          <p className="text-white/60 font-medium italic">Verifying credentials...</p>
+        </div>
+      </div>
+    );
+  }
 
   if (!school) {
     return (
@@ -258,6 +319,7 @@ export const PrincipalDashboard = () => {
   }, [school?.id]);
 
   const [isSuspended, setIsSuspended] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
   const [daysToExpiry, setDaysToExpiry] = useState<number | null>(null);
   const [activeTab, setActiveTab] = useState<'dashboard' | 'staff' | 'students' | 'academic' | 'settings' | 'classes' | 'users'>('dashboard');
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
@@ -1001,10 +1063,10 @@ export const PrincipalDashboard = () => {
       { 
         id: '1', 
         name: 'John Kamau', 
-        email: 'j.kamau@bora.ke', 
+        email: '0712345678', 
         role: 'Head of Science', 
         status: 'Active', 
-        username: 'j.kamau@bora.ke', 
+        username: '0712345678', 
         password: 'password123', 
         mustChangePassword: true, 
         assignments: [
@@ -1015,10 +1077,10 @@ export const PrincipalDashboard = () => {
       { 
         id: '2', 
         name: 'Sarah Anyango', 
-        email: 's.anyango@bora.ke', 
+        email: '0723456789', 
         role: 'Mathematics Teacher', 
         status: 'Active', 
-        username: 's.anyango@bora.ke', 
+        username: '0723456789', 
         password: 'password123', 
         mustChangePassword: true, 
         assignments: [
@@ -1134,7 +1196,8 @@ export const PrincipalDashboard = () => {
         const { data: profilesData } = await supabase
           .from('profiles')
           .select('*')
-          .eq('role', 'teacher'); // Or filter by school if profiles had school_id
+          .eq('role', 'teacher')
+          .eq('school_id', school.id);
         if (profilesData) setStaff(profilesData);
 
       } catch (error) {
@@ -1151,34 +1214,46 @@ export const PrincipalDashboard = () => {
     navigate('/principal-login');
   };
 
-  const handleAddStaff = (e: FormEvent) => {
+  const handleAddStaff = async (e: FormEvent) => {
     e.preventDefault();
+    setIsLoading(true);
     
-    // Slugify school name for email extension
-    const schoolSlug = school.name.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const emailExtension = `${schoolSlug}.ac.ke`;
+    // Use phone number as identifier, removing email extensions fully
+    const sanitizedPhone = newStaff.phone.replace(/\s+/g, '');
+    const isValidPhone = /^(254\d{9}|07\d{8}|01\d{8})$/.test(sanitizedPhone);
 
-    // Auto-generate email/username from name if not provided
-    let finalEmail = newStaff.email.trim();
-    if (!finalEmail) {
-      const nameParts = newStaff.name.toLowerCase().split(' ');
-      const baseUsername = nameParts.length > 1 
-        ? `${nameParts[0][0]}${nameParts[1]}` 
-        : nameParts[0];
-      finalEmail = `${baseUsername}@${emailExtension}`;
-    } else if (!finalEmail.includes('@')) {
-      finalEmail = `${finalEmail.toLowerCase()}@${emailExtension}`;
-    } else if (!finalEmail.endsWith(`@${emailExtension}`)) {
-      const [prefix] = finalEmail.split('@');
-      finalEmail = `${prefix.toLowerCase()}@${emailExtension}`;
+    if (!isValidPhone) {
+      alert('Phone number must start with 254, 07, or 01 and be of valid length');
+      setIsLoading(false);
+      return;
+    }
+
+    let finalEmail = sanitizedPhone;
+    
+    if (!finalEmail && newStaff.email) {
+      finalEmail = newStaff.email.trim().toLowerCase();
     }
 
     if (editingStaff) {
+      // Safety check: Prevent changing role of a teacher
+      if (editingStaff.role?.toLowerCase() === 'teacher' && newStaff.role.toLowerCase() !== 'teacher') {
+        alert('Teacher roles cannot be changed once assigned.');
+        setIsLoading(false);
+        return;
+      }
+
+      // Safety check: Prevent assigning principal or super-admin roles
+      if (newStaff.role.toLowerCase() === 'principal' || newStaff.role.toLowerCase() === 'super-admin') {
+        alert('You cannot assign Principal or Super Admin roles.');
+        setIsLoading(false);
+        return;
+      }
+
       const updatedStaff = staff.map(s => s.id === editingStaff.id ? { 
         ...editingStaff, 
         name: newStaff.name, 
         email: finalEmail, 
-        phone: newStaff.phone,
+        phone: sanitizedPhone,
         role: newStaff.role,
         assignments: newStaff.assignments
       } : s);
@@ -1188,7 +1263,7 @@ export const PrincipalDashboard = () => {
       supabase.from('profiles').update({
         name: newStaff.name,
         email: finalEmail,
-        phone: newStaff.phone,
+        phone: sanitizedPhone,
         role: newStaff.role.toLowerCase(),
         assignments: newStaff.assignments
       }).eq('id', editingStaff.id).then(({ error }) => {
@@ -1199,26 +1274,84 @@ export const PrincipalDashboard = () => {
       });
 
       setEditingStaff(null);
+      setIsLoading(false);
     } else {
-      const password = Math.random().toString(36).slice(-8);
-      const profileId = crypto.randomUUID();
+      // Safety check: Prevent assigning principal or super-admin roles
+      if (newStaff.role.toLowerCase() === 'principal' || newStaff.role.toLowerCase() === 'super-admin') {
+        alert('You cannot assign Principal or Super Admin roles.');
+        setIsLoading(false);
+        return;
+      }
 
-      // Sync with Supabase first to get the generated ID
-      supabase.from('profiles').insert({
-        id: profileId,
-        user_id: profileId,
-        name: newStaff.name,
-        email: finalEmail,
-        phone: newStaff.phone,
-        role: newStaff.role.toLowerCase(),
-        school_id: school.id,
-        password: password, // Store password in profile for cross-device login fallback
-        assignments: newStaff.assignments
-      }).select().single().then(({ data, error }) => {
+      const password = Math.random().toString(36).slice(-8);
+      
+      try {
+        // 1. Create Auth Account using a secondary client to avoid signing out the principal
+        // We need to import createClient or use a helper
+        const { createClient } = await import('@supabase/supabase-js');
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        
+        const secondaryClient = createClient(supabaseUrl, supabaseAnonKey, {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false
+          }
+        });
+
+        // Try to sign up with phone or email
+        const isEmail = finalEmail.includes('@');
+        const cleanPhone = sanitizedPhone.startsWith('+') ? sanitizedPhone : 
+                           sanitizedPhone.startsWith('0') ? `+254${sanitizedPhone.substring(1)}` : 
+                           `+${sanitizedPhone}`;
+
+        const { data: authData, error: authError } = await secondaryClient.auth.signUp(
+          isEmail 
+            ? { email: finalEmail, password } 
+            : { phone: cleanPhone, password }
+        );
+
+        if (authError && authError.message !== 'User already registered') {
+          throw authError;
+        }
+
+        let authUserId = authData.user?.id;
+        let linkedUserId = authData.user?.id;
+        
+        if (!authUserId) {
+          // User might already exist in Auth. Try to find them in profiles.
+          const { data: existingProfile } = await supabase
+            .from('profiles')
+            .select('id, user_id')
+            .eq(isEmail ? 'email' : 'phone', isEmail ? finalEmail : sanitizedPhone)
+            .maybeSingle();
+          
+          if (existingProfile) {
+            authUserId = existingProfile.id;
+            linkedUserId = existingProfile.user_id;
+          } else {
+            authUserId = crypto.randomUUID();
+            linkedUserId = null;
+          }
+        }
+
+        // 2. Sync with Supabase profiles table
+        const { data, error } = await supabase.from('profiles').upsert({
+          id: authUserId,
+          user_id: linkedUserId,
+          name: newStaff.name,
+          email: finalEmail,
+          phone: sanitizedPhone,
+          role: newStaff.role.toLowerCase(),
+          school_id: school.id,
+          password: password, // Store password in profile for cross-device login fallback
+          must_change_password: true,
+          assignments: newStaff.assignments
+        }).select().single();
+
         if (error) {
-          console.error('Error creating profile in Supabase:', error);
-          alert('Database error saving new user: ' + error.message);
-          return;
+          throw error;
         }
 
         if (data) {
@@ -1234,9 +1367,14 @@ export const PrincipalDashboard = () => {
           };
           setStaff([...staff, staffMember]);
           setGeneratedStaffCreds({ name: newStaff.name, username: finalEmail, password });
-          alert('Staff member added successfully!');
+          alert('Staff member added successfully and Auth account created!');
         }
-      });
+      } catch (error: any) {
+        console.error('Error adding staff:', error);
+        alert('Error adding staff: ' + (error.message || 'Unknown error'));
+      } finally {
+        setIsLoading(false);
+      }
     }
     setNewStaff({ name: '', email: '', phone: '', role: 'Teacher', assignments: [] });
     setShowAddStaffModal(false);
@@ -1261,7 +1399,21 @@ export const PrincipalDashboard = () => {
   };
 
   const updateStaffRole = (id: string, newRole: string) => {
+    const member = staff.find(s => s.id === id);
+    if (member && member.role?.toLowerCase() === 'teacher') {
+      alert('Teacher roles cannot be changed once assigned.');
+      return;
+    }
     setStaff(staff.map(s => s.id === id ? { ...s, role: newRole } : s));
+    
+    // Sync with Supabase
+    supabase.from('profiles').update({
+      role: newRole.toLowerCase()
+    }).eq('id', id).then(({ error }) => {
+      if (error) {
+        console.error('Error updating role in Supabase:', error);
+      }
+    });
   };
 
   const deleteStudentMark = (studentId: string, examId: string, subject: string) => {
@@ -1272,8 +1424,10 @@ export const PrincipalDashboard = () => {
     }
   };
 
-  const handleAddStudent = (e: FormEvent) => {
+  const handleAddStudent = async (e: FormEvent) => {
     e.preventDefault();
+    setIsLoading(true);
+
     if (editingStudent) {
       const updatedStudents = students.map(s => s.id === editingStudent.id ? { ...editingStudent, ...newStudent } : s);
       setStudents(updatedStudents);
@@ -1293,33 +1447,105 @@ export const PrincipalDashboard = () => {
       });
 
       setEditingStudent(null);
+      setIsLoading(false);
     } else {
-      // Sync with Supabase first to get the generated ID
-      supabase.from('students').insert({
-        name: newStudent.name,
-        adm: newStudent.adm,
-        class: newStudent.class,
-        gender: newStudent.gender,
-        status: 'Active',
-        school_id: school.id
-      }).select().single().then(({ data, error }) => {
-        if (error) {
-          console.error('Error creating student in Supabase:', error);
-          alert('Database error saving new student: ' + error.message);
-          return;
+      try {
+        const { createClient } = await import('@supabase/supabase-js');
+        const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+        const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+        
+        const secondaryClient = createClient(supabaseUrl, supabaseAnonKey, {
+          auth: {
+            persistSession: false,
+            autoRefreshToken: false,
+            detectSessionInUrl: false
+          }
+        });
+
+        // Use ADM number as dummy email for Auth
+        const studentEmail = `${newStudent.adm.toLowerCase().replace(/[^a-z0-9]/g, '')}@student.boraschool.ke`;
+        const password = 'password123'; // Default password for students
+
+        // 1. Create Auth Account
+        const { data: authData, error: authError } = await secondaryClient.auth.signUp({
+          email: studentEmail,
+          password: password
+        });
+
+        if (authError && authError.message !== 'User already registered') {
+          throw authError;
         }
 
-        if (data) {
+        let authUserId = authData.user?.id;
+        let linkedUserId = authData.user?.id;
+        
+        if (!authUserId) {
+          // User might already exist. Try to find them.
+          const { data: existingStudent } = await supabase
+            .from('students')
+            .select('id')
+            .eq('adm', newStudent.adm)
+            .maybeSingle();
+          
+          if (existingStudent) {
+            authUserId = existingStudent.id;
+            // Try to find linked user_id from profiles
+            const { data: existingProfile } = await supabase
+              .from('profiles')
+              .select('user_id')
+              .eq('student_id', existingStudent.id)
+              .maybeSingle();
+            linkedUserId = existingProfile?.user_id || null;
+          } else {
+            authUserId = crypto.randomUUID();
+            linkedUserId = null;
+          }
+        }
+
+        // 2. Create Student Record
+        const { data: studentData, error: studentError } = await supabase.from('students').upsert({
+          id: authUserId, // Use same ID for consistency
+          name: newStudent.name,
+          adm: newStudent.adm,
+          class: newStudent.class,
+          gender: newStudent.gender,
+          status: 'Active',
+          school_id: school.id
+        }).select().single();
+
+        if (studentError) throw studentError;
+
+        // 3. Create Profile Record
+        const { error: profileError } = await supabase.from('profiles').upsert({
+          id: authUserId,
+          user_id: linkedUserId,
+          name: newStudent.name,
+          email: studentEmail,
+          role: 'student',
+          school_id: school.id,
+          student_id: studentData.id,
+          password: password,
+          must_change_password: true
+        });
+
+        if (profileError) throw profileError;
+
+        if (studentData) {
           const student = {
-            id: data.id,
+            id: studentData.id,
             ...newStudent,
             status: 'Active',
             school_id: school.id
           };
           setStudents([...students, student]);
-          alert('Student added successfully!');
+          alert('Student added successfully and Auth account created!');
         }
-      });
+      } catch (error: any) {
+        console.error('Error adding student:', error);
+        alert('Error adding student: ' + (error.message || 'Unknown error'));
+      } finally {
+        setIsLoading(false);
+      }
     }
     setNewStudent({ name: '', adm: '', class: 'Form 1', streamId: '', gender: 'Male', profile_image: null });
     setShowAddStudentModal(false);
@@ -2517,7 +2743,23 @@ export const PrincipalDashboard = () => {
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <main className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        {isSuspended && (
+          <div className="absolute inset-0 z-[60] bg-white/80 backdrop-blur-md flex items-center justify-center p-8">
+            <div className="max-w-md w-full bg-white border-4 border-kenya-red p-10 shadow-[16px_16px_0px_0px_rgba(231,0,0,1)] text-center">
+              <div className="w-20 h-20 bg-kenya-red/10 rounded-full flex items-center justify-center mx-auto mb-6">
+                <ShieldAlert className="w-10 h-10 text-kenya-red" />
+              </div>
+              <h2 className="text-3xl font-black text-kenya-black uppercase tracking-tighter mb-4 italic">School Suspended</h2>
+              <p className="text-gray-600 font-bold uppercase text-sm leading-relaxed mb-8">
+                Access to this school's portal has been suspended by the super admin or the subscription has expired. Please contact support for more information.
+              </p>
+              <div className="h-2 w-full bg-kenya-red/20 rounded-full overflow-hidden">
+                <div className="h-full bg-kenya-red animate-pulse" style={{ width: '100%' }} />
+              </div>
+            </div>
+          </div>
+        )}
         {/* Header */}
         <header className="h-20 bg-white border-b border-gray-200 flex items-center justify-between px-4 lg:px-8 shrink-0">
           <div className="flex items-center gap-4">
@@ -2538,7 +2780,7 @@ export const PrincipalDashboard = () => {
             <div className="h-8 w-px bg-gray-200 mx-2" />
             <div className="flex items-center gap-3">
               <div className="text-right hidden sm:block">
-                <p className="text-sm font-bold text-kenya-black">Principal</p>
+                <p className="text-sm font-bold text-kenya-black">{principalProfile?.name || 'Principal'}</p>
                 <p className="text-xs text-gray-500">{school.location}</p>
               </div>
               <div className="w-10 h-10 rounded-xl bg-gray-100 border border-gray-200 flex items-center justify-center">
@@ -2752,7 +2994,8 @@ export const PrincipalDashboard = () => {
                             <select 
                               value={member.role}
                               onChange={(e) => updateStaffRole(member.id, e.target.value)}
-                              className="bg-gray-50 border border-gray-200 rounded-lg text-sm px-2 py-1 focus:outline-none focus:ring-2 focus:ring-kenya-green/20"
+                              disabled={member.role?.toLowerCase() === 'teacher'}
+                              className={`bg-gray-50 border border-gray-200 rounded-lg text-sm px-2 py-1 focus:outline-none focus:ring-2 focus:ring-kenya-green/20 ${member.role?.toLowerCase() === 'teacher' ? 'opacity-50 cursor-not-allowed' : ''}`}
                             >
                               <option value="Principal">Principal</option>
                               <option value="Deputy Principal">Deputy Principal</option>
@@ -4730,7 +4973,8 @@ export const PrincipalDashboard = () => {
                   <select 
                     value={newStaff.role}
                     onChange={(e) => setNewStaff({...newStaff, role: e.target.value})}
-                    className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-kenya-green/20"
+                    disabled={editingStaff && editingStaff.role?.toLowerCase() === 'teacher'}
+                    className={`w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-kenya-green/20 ${editingStaff && editingStaff.role?.toLowerCase() === 'teacher' ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <option value="Principal">Principal</option>
                     <option value="Deputy Principal">Deputy Principal</option>
@@ -4743,6 +4987,9 @@ export const PrincipalDashboard = () => {
                     <option value="Secretary">Secretary</option>
                     <option value="Admin">Admin</option>
                   </select>
+                  {editingStaff && editingStaff.role?.toLowerCase() === 'teacher' && (
+                    <p className="text-[10px] text-gray-500 italic ml-1">Teacher roles cannot be changed once assigned.</p>
+                  )}
                 </div>
 
                 <div className="space-y-4">

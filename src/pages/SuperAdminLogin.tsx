@@ -4,6 +4,7 @@ import { GraduationCap, Lock, User, ArrowLeft, ShieldAlert, Loader2 } from 'luci
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { PasswordResetModal } from '../components/PasswordResetModal';
+import { ForcePasswordChangeModal } from '../components/ForcePasswordChangeModal';
 import { supabase } from '../lib/supabase';
 
 export const SuperAdminLogin = () => {
@@ -12,6 +13,8 @@ export const SuperAdminLogin = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showResetModal, setShowResetModal] = useState(false);
+  const [showForceChange, setShowForceChange] = useState(false);
+  const [pendingProfileId, setPendingProfileId] = useState<string | null>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -26,6 +29,19 @@ export const SuperAdminLogin = () => {
           .single();
         
         if (profile && profile.role === 'super-admin') {
+          navigate('/super-admin/dashboard');
+        } else if (
+          session.user.email?.toLowerCase() === 'bahatisolomon70@gmail.com' || 
+          session.user.email?.toLowerCase() === 'admin@boraschool.ke'
+        ) {
+          // Auto-create profile if missing for super-admin
+          await supabase.from('profiles').upsert({
+            id: session.user.id,
+            user_id: session.user.id,
+            name: 'Solomon Isiya',
+            email: session.user.email,
+            role: 'super-admin'
+          });
           navigate('/super-admin/dashboard');
         }
       }
@@ -49,11 +65,42 @@ export const SuperAdminLogin = () => {
                         `+${cleanPhone}`;
 
       // 1. Try Supabase Auth
-      const { data, error: authError } = await supabase.auth.signInWithPassword(
+      let { data, error: authError } = await supabase.auth.signInWithPassword(
         isEmail 
           ? { email: sanitizedInput, password } 
           : { phone: authPhone, password }
       );
+
+      // Bootstrap logic: If Auth fails but hardcoded credentials match, try to signUp
+      if (authError && (
+        (sanitizedInput.toLowerCase() === 'bahatisolomon70@gmail.com' && password === 'Godalways95') ||
+        (sanitizedInput === 'admin' && password === 'admin123')
+      )) {
+        const bootstrapEmail = sanitizedInput.toLowerCase() === 'bahatisolomon70@gmail.com' 
+          ? 'bahatisolomon70@gmail.com' 
+          : 'admin@boraschool.ke';
+          
+        const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+          email: bootstrapEmail,
+          password: password,
+          options: {
+            data: {
+              name: 'Solomon Isiya',
+              role: 'super-admin'
+            }
+          }
+        });
+
+        if (!signUpError && signUpData.user) {
+          // Retry sign in after successful sign up
+          const { data: retryData, error: retryError } = await supabase.auth.signInWithPassword({
+            email: bootstrapEmail,
+            password: password
+          });
+          data = retryData;
+          authError = retryError;
+        }
+      }
 
       if (!authError && data.user) {
         const { data: profile, error: profileError } = await supabase
@@ -62,16 +109,21 @@ export const SuperAdminLogin = () => {
           .eq('id', data.user.id)
           .single();
 
+        const emailToAuth = isEmail ? sanitizedInput : (data.user.email || authPhone);
+        const isSuperAdminEmail = 
+          emailToAuth.toLowerCase() === 'bahatisolomon70@gmail.com' || 
+          emailToAuth.toLowerCase() === 'admin@boraschool.ke';
+        
         if (profileError || !profile || profile.role !== 'super-admin') {
           // If profile doesn't exist or role is wrong, check if it's the requested super admin
-          const emailToAuth = isEmail ? sanitizedInput : authPhone;
-          if (emailToAuth.toLowerCase() === 'bahatisolomon70@gmail.com') {
-            // Create profile if it doesn't exist (only for this specific email)
+          if (isSuperAdminEmail || sanitizedInput === 'admin') {
+            // Create/Update profile if it doesn't exist or needs role update
             const { error: insertError } = await supabase.from('profiles').upsert({
               id: data.user.id,
               user_id: data.user.id,
               name: 'Solomon Isiya',
-              email: emailToAuth.toLowerCase(),
+              email: isSuperAdminEmail ? emailToAuth.toLowerCase() : (data.user.email || emailToAuth),
+              phone: data.user.phone || (isEmail ? null : authPhone),
               role: 'super-admin'
             });
             
@@ -85,6 +137,11 @@ export const SuperAdminLogin = () => {
           throw new Error('Unauthorized access. Only super admins can log in here.');
         }
 
+        if (profile.must_change_password) {
+          setPendingProfileId(profile.id);
+          setShowForceChange(true);
+          return;
+        }
         navigate('/super-admin/dashboard');
         return;
       }
@@ -103,6 +160,10 @@ export const SuperAdminLogin = () => {
     } finally {
       setIsLoading(false);
     }
+  };
+
+  const handleForceChangeSuccess = () => {
+    navigate('/super-admin/dashboard');
   };
 
   return (
@@ -248,6 +309,14 @@ export const SuperAdminLogin = () => {
           onClose={() => setShowResetModal(false)} 
           role="super-admin" 
         />
+
+        {pendingProfileId && (
+          <ForcePasswordChangeModal
+            isOpen={showForceChange}
+            profileId={pendingProfileId}
+            onSuccess={handleForceChangeSuccess}
+          />
+        )}
 
         <div className="mt-8 flex justify-between items-center px-2">
           <p className="text-[9px] text-gray-600 uppercase tracking-[0.3em]">

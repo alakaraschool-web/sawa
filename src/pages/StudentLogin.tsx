@@ -4,6 +4,7 @@ import { GraduationCap, Lock, User, ArrowLeft, Rocket, Loader2 } from 'lucide-re
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '../components/Button';
 import { PasswordResetModal } from '../components/PasswordResetModal';
+import { ForcePasswordChangeModal } from '../components/ForcePasswordChangeModal';
 import { supabase } from '../lib/supabase';
 
 export const StudentLogin = () => {
@@ -12,6 +13,9 @@ export const StudentLogin = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
   const [showResetModal, setShowResetModal] = useState(false);
+  const [showForceChange, setShowForceChange] = useState(false);
+  const [pendingProfileId, setPendingProfileId] = useState<string | null>(null);
+  const [pendingStudent, setPendingStudent] = useState<any>(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -49,57 +53,71 @@ export const StudentLogin = () => {
     setError('');
 
     try {
-      // 1. Try Supabase Auth
-      // Students use Admission Number directly
-      const { data, error: authError } = await supabase.auth.signInWithPassword({
-        email: username,
-        password: password,
-      });
+      const sanitizedInput = username.trim();
+      const isEmail = sanitizedInput.includes('@');
+      const isPhone = /^\+?[\d\s-]{10,}$/.test(sanitizedInput);
 
-      if (!authError && data.user) {
-        const { data: profile, error: profileError } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', data.user.id)
-          .single();
+      // 1. Try Supabase Auth only if it looks like an email or phone
+      if (isEmail || isPhone) {
+        const authCredential = isEmail ? { email: sanitizedInput, password } : { phone: sanitizedInput, password };
+        const { data, error: authError } = await supabase.auth.signInWithPassword(authCredential);
 
-        if (profileError || !profile || profile.role !== 'student') {
-          await supabase.auth.signOut();
-          throw new Error('Unauthorized access. Only students can log in here.');
+        if (!authError && data.user) {
+          const { data: profile, error: profileError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', data.user.id)
+            .single();
+
+          if (profile && profile.role === 'student') {
+            const { data: student, error: studentError } = await supabase
+              .from('students')
+              .select('*')
+              .eq('id', profile.student_id || profile.id) // Fallback to id if student_id is missing
+              .single();
+
+            if (student) {
+              if (profile.must_change_password) {
+                setPendingProfileId(profile.id);
+                setPendingStudent(student);
+                setShowForceChange(true);
+                return;
+              }
+              localStorage.setItem('alakara_current_student', JSON.stringify(student));
+              navigate('/student/dashboard');
+              return;
+            }
+          }
+          
+          if (profileError || !profile || profile.role !== 'student') {
+            await supabase.auth.signOut();
+          }
         }
-
-        const { data: student, error: studentError } = await supabase
-          .from('students')
-          .select('*')
-          .eq('id', profile.student_id)
-          .single();
-
-        if (studentError || !student) {
-          throw new Error('Student profile not found.');
-        }
-
-        localStorage.setItem('alakara_current_student', JSON.stringify(student));
-        navigate('/student/dashboard');
-        return;
       }
 
       // 2. Fallback: Check profiles table for custom credentials
       const { data: customProfile } = await supabase
         .from('profiles')
         .select('*')
-        .eq('email', username)
+        .eq('email', sanitizedInput)
         .eq('password', password)
         .eq('role', 'student')
         .maybeSingle();
 
       if (customProfile) {
-        const { data: student, error: studentError } = await supabase
+        const { data: student } = await supabase
           .from('students')
           .select('*')
-          .eq('id', customProfile.student_id)
+          .eq('id', customProfile.student_id || customProfile.id)
           .single();
 
         if (student) {
+          if (customProfile.must_change_password) {
+            setPendingProfileId(customProfile.id);
+            setPendingStudent(student);
+            setShowForceChange(true);
+            return;
+          }
           localStorage.setItem('alakara_current_student', JSON.stringify(student));
           navigate('/student/dashboard');
           return;
@@ -110,7 +128,7 @@ export const StudentLogin = () => {
       const { data: studentByAdm } = await supabase
         .from('students')
         .select('*')
-        .eq('adm', username)
+        .eq('adm', sanitizedInput)
         .single();
 
       if (studentByAdm) {
@@ -119,6 +137,19 @@ export const StudentLogin = () => {
         const inputPassword = password.toLowerCase();
         
         if (names.includes(inputPassword) || password === 'password123') {
+          // Find profile to check for must_change_password
+          const { data: profile } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('student_id', studentByAdm.id)
+            .maybeSingle();
+
+          if (profile?.must_change_password) {
+            setPendingProfileId(profile.id);
+            setPendingStudent(studentByAdm);
+            setShowForceChange(true);
+            return;
+          }
           localStorage.setItem('alakara_current_student', JSON.stringify(studentByAdm));
           navigate('/student/dashboard');
           return;
@@ -130,6 +161,13 @@ export const StudentLogin = () => {
       setError(err.message || 'An unexpected error occurred');
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const handleForceChangeSuccess = () => {
+    if (pendingStudent) {
+      localStorage.setItem('alakara_current_student', JSON.stringify(pendingStudent));
+      navigate('/student/dashboard');
     }
   };
 
@@ -272,6 +310,14 @@ export const StudentLogin = () => {
           onClose={() => setShowResetModal(false)} 
           role="student" 
         />
+
+        {pendingProfileId && (
+          <ForcePasswordChangeModal
+            isOpen={showForceChange}
+            profileId={pendingProfileId}
+            onSuccess={handleForceChangeSuccess}
+          />
+        )}
 
         <p className="mt-10 text-center text-[10px] font-black text-white uppercase tracking-[0.5em]">
           &copy; 2026 Bora School Student Hub

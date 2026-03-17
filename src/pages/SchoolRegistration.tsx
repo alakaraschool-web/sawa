@@ -65,6 +65,15 @@ export const SchoolRegistration = () => {
     setIsLoading(true);
     setError('');
 
+    const sanitizedPhone = formData.principalPhone.replace(/\s+/g, '');
+    const isValidPhone = /^(254\d{9}|07\d{8}|01\d{8})$/.test(sanitizedPhone);
+
+    if (!isValidPhone) {
+      setError('Phone number must start with 254, 07, or 01 and be of valid length');
+      setIsLoading(false);
+      return;
+    }
+
     try {
       // Generate a dummy email for Supabase Auth using principalPhone
       // Using a simpler internal extension
