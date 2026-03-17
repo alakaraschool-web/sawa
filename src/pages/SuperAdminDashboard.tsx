@@ -377,13 +377,11 @@ export const SuperAdminDashboard = () => {
           });
 
           const sanitizedPhone = newSchool.principalPhone.replace(/\s+/g, '');
-          const authPhone = sanitizedPhone.startsWith('+') ? sanitizedPhone : 
-                            sanitizedPhone.startsWith('0') ? `+254${sanitizedPhone.substring(1)}` : 
-                            `+${sanitizedPhone}`;
+          const principalEmail = `principal_${sanitizedPhone}@boraschool.ke`;
 
-          // 1. Create Principal Auth Account
+          // 1. Create Principal Auth Account (using Email for reliability)
           const { data: pAuthData, error: pAuthError } = await secondaryClient.auth.signUp({
-            phone: authPhone,
+            email: principalEmail,
             password: creds.pass
           });
 
@@ -394,7 +392,7 @@ export const SuperAdminDashboard = () => {
           let principalId = pAuthData.user?.id;
           let principalAuthId = pAuthData.user?.id;
           if (!principalId) {
-            const { data: existingP } = await supabase.from('profiles').select('id, user_id').eq('phone', sanitizedPhone).eq('role', 'principal').maybeSingle();
+            const { data: existingP } = await supabase.from('profiles').select('id, user_id').eq('email', principalEmail).eq('role', 'principal').maybeSingle();
             principalId = existingP?.id || crypto.randomUUID();
             principalAuthId = existingP?.user_id || null;
           }
@@ -405,17 +403,17 @@ export const SuperAdminDashboard = () => {
             user_id: principalAuthId,
             school_id: schoolData.id,
             name: `${newSchool.name} Principal`,
-            email: sanitizedPhone,
+            email: principalEmail,
             phone: sanitizedPhone,
             password: creds.pass,
             must_change_password: true,
             role: 'principal'
           });
 
-          // 2. Create Teacher Auth Account
-          const teacherIdentifier = `staff_${sanitizedPhone}`;
+          // 2. Create Teacher Auth Account (using Email to avoid phone conflict)
+          const teacherEmail = `staff_${sanitizedPhone}@boraschool.ke`;
           const { data: tAuthData, error: tAuthError } = await secondaryClient.auth.signUp({
-            phone: authPhone, // Use same phone for staff account if needed, or a different identifier
+            email: teacherEmail,
             password: creds.pass
           });
 
@@ -426,7 +424,7 @@ export const SuperAdminDashboard = () => {
           let teacherId = tAuthData.user?.id;
           let teacherAuthId = tAuthData.user?.id;
           if (!teacherId) {
-            const { data: existingT } = await supabase.from('profiles').select('id, user_id').eq('phone', sanitizedPhone).eq('role', 'teacher').maybeSingle();
+            const { data: existingT } = await supabase.from('profiles').select('id, user_id').eq('email', teacherEmail).eq('role', 'teacher').maybeSingle();
             teacherId = existingT?.id || crypto.randomUUID();
             teacherAuthId = existingT?.user_id || null;
           }
@@ -437,8 +435,8 @@ export const SuperAdminDashboard = () => {
             user_id: teacherAuthId,
             school_id: schoolData.id,
             name: `${newSchool.name} Staff`,
-            email: sanitizedPhone,
-            phone: sanitizedPhone,
+            email: teacherEmail,
+            phone: null, // Avoid conflict with principal's phone
             password: creds.pass,
             must_change_password: true,
             role: 'teacher'
