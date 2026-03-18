@@ -377,7 +377,7 @@ export const SuperAdminDashboard = () => {
           });
 
           const sanitizedPhone = newSchool.principalPhone.replace(/\s+/g, '');
-          const principalEmail = `principal_${sanitizedPhone}@boraschool.ke`;
+          const principalEmail = `p${sanitizedPhone}@boraschool.ke`;
 
           // 1. Create Principal Auth Account (using Email for reliability)
           const { data: pAuthData, error: pAuthError } = await secondaryClient.auth.signUp({
@@ -410,8 +410,10 @@ export const SuperAdminDashboard = () => {
             role: 'principal'
           });
 
+          if (pError) console.error('Principal Profile Error:', pError);
+
           // 2. Create Teacher Auth Account (using Email to avoid phone conflict)
-          const teacherEmail = `staff_${sanitizedPhone}@boraschool.ke`;
+          const teacherEmail = `s${sanitizedPhone}@boraschool.ke`;
           const { data: tAuthData, error: tAuthError } = await secondaryClient.auth.signUp({
             email: teacherEmail,
             password: creds.pass
@@ -441,6 +443,8 @@ export const SuperAdminDashboard = () => {
             must_change_password: true,
             role: 'teacher'
           });
+
+          if (tError) console.error('Teacher Profile Error:', tError);
 
           if (pError || tError) {
             console.error('Error creating profiles:', pError || tError);

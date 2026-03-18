@@ -45,23 +45,35 @@ export const TeacherLogin = () => {
     try {
       const sanitizedInput = phone.trim();
       const isEmail = sanitizedInput.includes('@');
-      
-      // Ensure E.164 format for Supabase Auth if it's a phone number
       const cleanPhone = sanitizedInput.replace(/\s+/g, '');
-      const authPhone = cleanPhone.startsWith('+') ? cleanPhone : 
-                        cleanPhone.startsWith('0') ? `+254${cleanPhone.substring(1)}` : 
-                        `+${cleanPhone}`;
-      const isPhone = /^\+?[\d\s-]{10,}$/.test(authPhone);
+      
+      let loginEmail = sanitizedInput;
+      let isPhoneLogin = false;
 
-      // Try Supabase Auth only if it looks like an email or phone
-      if (isEmail || isPhone) {
-        const { data, error: authError } = await supabase.auth.signInWithPassword(
-          isEmail 
-            ? { email: sanitizedInput, password } 
-            : { phone: authPhone, password }
-        );
+      if (!isEmail) {
+        // If it's a phone number, try to find the associated profile to get the generated email
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('email')
+          .eq('phone', cleanPhone)
+          .eq('role', 'teacher')
+          .maybeSingle();
+        
+        if (profile) {
+          loginEmail = profile.email;
+        } else {
+          isPhoneLogin = true;
+        }
+      }
 
-        if (!authError && data.user) {
+      // Try Supabase Auth
+      const { data, error: authError } = await supabase.auth.signInWithPassword(
+        isPhoneLogin 
+          ? { phone: cleanPhone.startsWith('+') ? cleanPhone : `+254${cleanPhone.replace(/^0/, '')}`, password }
+          : { email: loginEmail, password }
+      );
+
+      if (!authError && data.user) {
           const { data: profile } = await supabase
             .from('profiles')
             .select('*')
@@ -79,9 +91,8 @@ export const TeacherLogin = () => {
             return;
           }
         }
-      }
 
-      // 2. Fallback: Check profiles table for custom credentials
+        // 2. Fallback: Check profiles table for custom credentials
       const { data: customProfile } = await supabase
         .from('profiles')
         .select('*')

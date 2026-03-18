@@ -76,7 +76,7 @@ export const SchoolRegistration = () => {
 
     try {
       const sanitizedPhone = formData.principalPhone.replace(/\s+/g, '');
-      const principalEmail = `principal_${sanitizedPhone}@boraschool.ke`;
+      const principalEmail = `p${sanitizedPhone}@boraschool.ke`;
 
       // 1. Sign up user in Supabase Auth using email (more reliable than phone in many setups)
       const { data: authData, error: authError } = await supabase.auth.signUp({
@@ -90,7 +90,10 @@ export const SchoolRegistration = () => {
         }
       });
 
-      if (authError) throw authError;
+      if (authError) {
+        console.error('Full Auth Error:', authError);
+        throw authError;
+      }
       if (!authData.user) throw new Error('Registration failed');
 
       // 2. Create School in Supabase
@@ -123,7 +126,10 @@ export const SchoolRegistration = () => {
           password: formData.password
         });
 
-      if (profileError) throw profileError;
+      if (profileError) {
+        console.error('Profile Creation Error:', profileError);
+        throw profileError;
+      }
 
       // Fallback for prototype/legacy
       const savedSchools = localStorage.getItem('alakara_schools');
